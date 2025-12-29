@@ -4,7 +4,7 @@ class FinanceTool(models.Model):
     _name = 'finance.tool'
     _description = 'Finanz Reader Werkzeug'
 
-    name = fields.Char("Bezeichnung", default="Mein Finanz-Check")
+    name = fields.Char("Bezeichnung", default="Bilanz")
 
     # Die Firmenwährung (wird automatisch gesetzt)
     currency_id = fields.Many2one(
@@ -71,21 +71,20 @@ class FinanceTool(models.Model):
                 line_curr_id = acc.currency_id.id
                 acc_currency_obj = acc.currency_id
             else:
-                # Falls keine Währung auf dem Konto, ist es die Firmenwährung
                 line_curr_id = main_curr.id
                 acc_currency_obj = main_curr
 
-            # B. Saldo ermitteln (Fremdwährung vs. Leitwährung)
+            # B. Saldo ermitteln
             domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
             original_val = 0.0
 
             if acc.currency_id and acc.currency_id != main_curr:
-                # Fremdwährung: amount_currency nutzen
+                # Fremdwährung
                 data = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
                 if data and data[0]['amount_currency']:
                     original_val = data[0]['amount_currency']
             else:
-                # Leitwährung: balance nutzen
+                # Leitwährung
                 data = self.env['account.move.line'].read_group(domain, ['balance'], [])
                 if data and data[0]['balance']:
                     original_val = data[0]['balance']
@@ -94,7 +93,7 @@ class FinanceTool(models.Model):
             if abs(original_val) < 0.01:
                 continue
 
-            # C. Umrechnung in Leitwährung (Tageskurs)
+            # C. Umrechnung in Leitwährung
             converted_val = acc_currency_obj._convert(
                 original_val,
                 main_curr,
@@ -106,20 +105,19 @@ class FinanceTool(models.Model):
 
             # Datensatz vorbereiten
             line_vals = {
-                'account_id': acc.id,                   # WICHTIG für den Link
+                'account_id': acc.id,                   # WICHTIG: Verknüpfung
                 'code': acc.code,
                 'name': acc.name,
                 'original_amount': original_val,
-                'original_currency_id': line_curr_id,   # Währung für Anzeige
-                'converted_amount': converted_val,      # Betrag in CHF/EUR
-                'currency_id': main_curr.id,            # Währungseinheit für converted
+                'original_currency_id': line_curr_id,
+                'converted_amount': converted_val,
+                'currency_id': main_curr.id,
             }
 
             # === ZUORDNUNG AKTIVA ===
             if atype in type_liquidity + type_receivable + type_current_assets + type_fixed_assets:
                 sum_aktiva += converted_val
 
-                # Liquiditätsgrade berechnen
                 if atype in type_liquidity:
                     asset_val_liq_1 += converted_val
                     asset_val_liq_2 += converted_val
@@ -134,7 +132,7 @@ class FinanceTool(models.Model):
 
             # === ZUORDNUNG PASSIVA ===
             elif atype in type_short_term_liabilities + type_long_term_equity:
-                # Vorzeichen drehen für schönere Anzeige (Passiva sind in DB oft negativ)
+                # Vorzeichen drehen
                 line_vals['original_amount'] = original_val * -1
                 line_vals['converted_amount'] = converted_val * -1
 
@@ -166,17 +164,18 @@ class FinanceToolLine(models.Model):
     tool_aktiva_id = fields.Many2one('finance.tool', string="Parent Aktiva")
     tool_passiva_id = fields.Many2one('finance.tool', string="Parent Passiva")
 
-    # Verknüpfung zum echten Konto (für den Deep-Link)
     account_id = fields.Many2one('account.account', string="Konto-Objekt", required=True)
 
     code = fields.Char("Nr.")
     name = fields.Char("Konto")
 
-    # 1. Original Währung
-    original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
-    original_amount = fields.Monetary(string="Betrag (Original)", currency_field='original_currency_id')
+    # NEU: Der Kontotyp wird direkt vom verknüpften Konto geholt
+    account_type = fields.Selection(related='account_id.account_type', string="Typ", store=True)
 
-    # 2. Leitwährung (Firma)
+    # Währungsfelder
+    original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
+    original_amount = fields.Monetary(string="Betrag", currency_field='original_currency_id')
+
     currency_id = fields.Many2one('res.currency', string="Leitwährung")
     converted_amount = fields.Monetary(string="In Leitwährung", currency_field='currency_id')
 
