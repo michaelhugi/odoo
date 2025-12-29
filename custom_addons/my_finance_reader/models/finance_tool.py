@@ -71,21 +71,49 @@ class FinanceTool(models.Model):
             domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
             original_val = 0.0
 
-            # --- FIX START: Sicherer Zugriff auf read_group Ergebnis ---
+            # --- FIX: ROBUSTES LADEN DER WERTE ---
+
+            # 1. Leitwährungssaldo holen (als Fallback)
+            data_bal = self.env['account.move.line'].read_group(domain, ['balance'], [])
+            # WICHTIG: "or 0.0" verwandelt None in 0.0
+            balance_in_main = (data_bal and data_bal[0].get('balance')) or 0.0
+
+            # 2. Fremdwährungssaldo holen
+            amount_curr = 0.0
             if acc.currency_id and acc.currency_id != main_curr:
-                data = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
-                # Wir nutzen .get(), da der Key fehlen kann, wenn keine Daten da sind
-                if data and data[0].get('amount_currency'):
-                    original_val = data[0]['amount_currency']
+                data_curr = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
+                amount_curr = (data_curr and data_curr[0].get('amount_currency')) or 0.0
+
+            # --- INTELLIGENTE LOGIK ---
+
+            if acc.currency_id and acc.currency_id != main_curr:
+                # Check: Haben wir einen Fremdwährungssaldo?
+                if abs(amount_curr) > 0.001:
+                    # Ja, alles sauber -> wir nehmen den echten Währungsbetrag
+                    original_val = amount_curr
+                    converted_val = acc.currency_id._convert(original_val, main_curr, company, today)
+                else:
+                    # Nein, aber vielleicht einen Saldo in Leitwährung?
+                    if abs(balance_in_main) > 0.001:
+                        # FALLBACK: Wir nehmen den Leitwährungs-Saldo
+                        converted_val = balance_in_main
+                        # Schätzung des Originalbetrags
+                        original_val = main_curr._convert(balance_in_main, acc.currency_id, company, today)
+                    else:
+                        original_val = 0.0
+                        converted_val = 0.0
             else:
-                data = self.env['account.move.line'].read_group(domain, ['balance'], [])
-                if data and data[0].get('balance'):
-                    original_val = data[0]['balance']
-            # --- FIX ENDE ---
+                # Konto ist in Leitwährung
+                original_val = balance_in_main
+                converted_val = balance_in_main
 
-            acc_curr = acc.currency_id if acc.currency_id else main_curr
-            converted_val = acc_curr._convert(original_val, main_curr, company, today)
+            # SICHERHEITSNETZ: Falls _convert aus irgendeinem Grund None zurückgibt
+            if not converted_val:
+                converted_val = 0.0
+            if not original_val:
+                original_val = 0.0
 
+            # Passiva drehen
             if acc.account_type in type_short_term_liabilities + type_long_term_equity:
                 val_for_sum = converted_val * -1
             else:
@@ -93,6 +121,8 @@ class FinanceTool(models.Model):
 
             atype = acc.account_type
             if atype not in group_totals: group_totals[atype] = 0.0
+
+            # Hier ist der Fehler passiert: += mit None. Jetzt sichergestellt, dass val_for_sum Float ist.
             group_totals[atype] += val_for_sum
 
             processed_accounts.append({
@@ -127,7 +157,6 @@ class FinanceTool(models.Model):
             converted_val_raw = item['converted_val']
             original_val_raw = item['original_val']
 
-            # BLAU wenn Wert vorhanden
             make_highlight = abs(val_final) > 0.01
             line_curr_id = acc.currency_id.id if acc.currency_id else main_curr.id
 
@@ -226,22 +255,21 @@ class FinanceToolLine(models.Model):
     account_id = fields.Many2one('account.account', string="Konto-Objekt")
     sequence = fields.Integer("Seq", default=10)
     code = fields.Char("Nr.")
-
     db_name = fields.Char("Konto DB")
 
     original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
-    original_amount = fields.Monetary(string="Betrag (Original)", currency_field='original_currency_id')
+    original_amount = fields.Monetary(string="Betrag", currency_field='original_currency_id')
     currency_id = fields.Many2one('res.currency', string="Leitwährung")
     converted_amount = fields.Monetary(string="In Leitwährung", currency_field='currency_id')
 
     is_highlight = fields.Boolean(default=False)
 
-    # Anzeige-Felder
+    # Anzeige-Felder (nicht gespeichert -> keine Sortierung)
     name = fields.Char("Konto / Gruppe", compute='_compute_view_vals', store=False)
     view_code = fields.Char("Nr.", compute='_compute_view_vals', store=False)
     view_account_type = fields.Char("Typ", compute='_compute_view_vals', store=False)
     view_converted_amount = fields.Monetary("In Leitwährung", compute='_compute_view_vals', store=False, currency_field='currency_id')
-    view_original_amount = fields.Monetary("Betrag (Original)", compute='_compute_view_vals', store=False, currency_field='original_currency_id')
+    view_original_amount = fields.Monetary("Betrag", compute='_compute_view_vals', store=False, currency_field='original_currency_id')
     view_currency_symbol = fields.Char("Währ.", compute='_compute_view_vals', store=False)
 
     @api.depends('code', 'db_name', 'converted_amount', 'account_id', 'original_amount', 'display_type')

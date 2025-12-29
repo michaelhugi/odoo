@@ -12,19 +12,17 @@
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <field name="currency_id" invisible="1"/>
 
-                    <group>
-                        <group string="Liquidität">
-                            <field name="kpi_liq_1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
-                            <field name="kpi_liq_2" widget="monetary" options="{'currency_field': 'currency_id'}"/>
-                            <field name="kpi_liq_3" widget="monetary" options="{'currency_field': 'currency_id'}"/>
-                        </group>
-                        <group string="Info">
-                            <field name="kpi_short_term_debt" widget="monetary" decoration-danger="1" options="{'currency_field': 'currency_id'}"/>
-                        </group>
+                    <group string="Liquidität">
+                        <field name="kpi_liq_1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                        <field name="kpi_liq_2" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                        <field name="kpi_liq_3" widget="monetary" options="{'currency_field': 'currency_id'}"/>
                     </group>
 
                     <group>
                         <group string="Aktiva">
+                            <group>
+                                <field name="kpi_total_aktiva" widget="monetary" style="font-weight:bold; font-size:1.2em;" options="{'currency_field': 'currency_id'}"/>
+                            </group>
                             <field name="aktiva_line_ids" nolabel="1" readonly="1" widget="section_and_note_one2many">
                                 <tree limit="1000" create="0" delete="0" edit="0"
                                       decoration-info="is_highlight">
@@ -37,11 +35,11 @@
 
                                     <button name="action_view_journal_items" type="object" icon="fa-list" title="Buchungen" attrs="{'invisible': [('display_type', '!=', False)]}"/>
 
-                                    <field name="view_code" optional="show" decoration-info="is_highlight"/>
+                                    <field name="view_code" decoration-info="is_highlight"/>
 
                                     <field name="name" decoration-info="is_highlight"/>
 
-                                    <field name="view_account_type" widget="badge" optional="show" decoration-info="is_highlight"/>
+                                    <field name="view_account_type" widget="badge" decoration-info="is_highlight"/>
 
                                     <field name="view_original_amount" widget="monetary" options="{'currency_field': 'original_currency_id'}" decoration-info="is_highlight"/>
                                     <field name="view_currency_symbol" string="Währ." decoration-info="is_highlight"/>
@@ -49,12 +47,12 @@
                                     <field name="view_converted_amount" widget="monetary" options="{'currency_field': 'currency_id'}" string="In CHF" decoration-info="is_highlight"/>
                                 </tree>
                             </field>
-                            <group>
-                                <field name="kpi_total_aktiva" widget="monetary" style="font-weight:bold; font-size:1.2em;" options="{'currency_field': 'currency_id'}"/>
-                            </group>
                         </group>
 
                         <group string="Passiva">
+                            <group>
+                                <field name="kpi_total_passiva" widget="monetary" style="font-weight:bold; font-size:1.2em;" options="{'currency_field': 'currency_id'}"/>
+                            </group>
                             <field name="passiva_line_ids" nolabel="1" readonly="1" widget="section_and_note_one2many">
                                 <tree limit="1000" create="0" delete="0" edit="0"
                                       decoration-info="is_highlight">
@@ -67,9 +65,9 @@
 
                                     <button name="action_view_journal_items" type="object" icon="fa-list" title="Buchungen" attrs="{'invisible': [('display_type', '!=', False)]}"/>
 
-                                    <field name="view_code" optional="show" decoration-info="is_highlight"/>
+                                    <field name="view_code" decoration-info="is_highlight"/>
                                     <field name="name" decoration-info="is_highlight"/>
-                                    <field name="view_account_type" widget="badge" optional="show" decoration-info="is_highlight"/>
+                                    <field name="view_account_type" widget="badge" decoration-info="is_highlight"/>
 
                                     <field name="view_original_amount" widget="monetary" options="{'currency_field': 'original_currency_id'}" decoration-info="is_highlight"/>
                                     <field name="view_currency_symbol" string="Währ." decoration-info="is_highlight"/>
@@ -77,9 +75,6 @@
                                     <field name="view_converted_amount" widget="monetary" options="{'currency_field': 'currency_id'}" string="In CHF" decoration-info="is_highlight"/>
                                 </tree>
                             </field>
-                            <group>
-                                <field name="kpi_total_passiva" widget="monetary" style="font-weight:bold; font-size:1.2em;" options="{'currency_field': 'currency_id'}"/>
-                            </group>
                         </group>
                     </group>
                 </sheet>
