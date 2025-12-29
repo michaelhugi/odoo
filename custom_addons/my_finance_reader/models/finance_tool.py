@@ -71,12 +71,17 @@ class FinanceTool(models.Model):
             domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
             original_val = 0.0
 
+            # --- FIX START: Sicherer Zugriff auf read_group Ergebnis ---
             if acc.currency_id and acc.currency_id != main_curr:
                 data = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
-                if data and data[0]['amount_currency']: original_val = data[0]['amount_currency']
+                # Wir nutzen .get(), da der Key fehlen kann, wenn keine Daten da sind
+                if data and data[0].get('amount_currency'):
+                    original_val = data[0]['amount_currency']
             else:
                 data = self.env['account.move.line'].read_group(domain, ['balance'], [])
-                if data and data[0]['balance']: original_val = data[0]['balance']
+                if data and data[0].get('balance'):
+                    original_val = data[0]['balance']
+            # --- FIX ENDE ---
 
             acc_curr = acc.currency_id if acc.currency_id else main_curr
             converted_val = acc_curr._convert(original_val, main_curr, company, today)
@@ -132,12 +137,11 @@ class FinanceTool(models.Model):
                     total_grp = group_totals.get(atype, 0.0)
                     formatted_total = "{:,.2f}".format(total_grp).replace(",", "X").replace(".", ",").replace("X", ".")
 
-                    # Header: "FLÜSSIGE MITTEL >>> 12'500.00 CHF"
-                    header_title = f"{group_label}     {formatted_total} {main_curr.symbol}"
+                    header_title = f"{group_label}  >>>  {formatted_total} {main_curr.symbol}"
 
                     new_aktiva_lines.append({
                         'display_type': 'line_section',
-                        'db_name': header_title,  # Speichern in DB_NAME
+                        'db_name': header_title,
                         'sequence': seq_aktiva,
                     })
                     seq_aktiva += 1
@@ -146,7 +150,7 @@ class FinanceTool(models.Model):
                 new_aktiva_lines.append({
                     'account_id': acc.id,
                     'code': acc.code,
-                    'db_name': acc.name,  # Speichern in DB_NAME
+                    'db_name': acc.name,
                     'sequence': seq_aktiva,
                     'original_amount': original_val_raw,
                     'original_currency_id': line_curr_id,
@@ -223,7 +227,6 @@ class FinanceToolLine(models.Model):
     sequence = fields.Integer("Seq", default=10)
     code = fields.Char("Nr.")
 
-    # NEU: Das echte Speicherfeld
     db_name = fields.Char("Konto DB")
 
     original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
@@ -233,12 +236,8 @@ class FinanceToolLine(models.Model):
 
     is_highlight = fields.Boolean(default=False)
 
-    # --- ANZEIGE FELDER (store=False = Keine Sortierung) ---
-
-    # 1. Das wichtigste Feld: NAME (Wird vom Section Widget gesucht)
-    # store=False -> Keine Sortierpfeile
+    # Anzeige-Felder
     name = fields.Char("Konto / Gruppe", compute='_compute_view_vals', store=False)
-
     view_code = fields.Char("Nr.", compute='_compute_view_vals', store=False)
     view_account_type = fields.Char("Typ", compute='_compute_view_vals', store=False)
     view_converted_amount = fields.Monetary("In Leitwährung", compute='_compute_view_vals', store=False, currency_field='currency_id')
@@ -248,11 +247,9 @@ class FinanceToolLine(models.Model):
     @api.depends('code', 'db_name', 'converted_amount', 'account_id', 'original_amount', 'display_type')
     def _compute_view_vals(self):
         for rec in self:
-            # WICHTIG: Das Feld 'name' wird für das Widget gefüllt
             rec.name = rec.db_name
 
             if rec.display_type == 'line_section':
-                # Bei Sections bleiben die anderen leer
                 rec.view_code = ""
                 rec.view_account_type = ""
                 rec.view_converted_amount = 0
