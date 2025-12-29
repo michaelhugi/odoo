@@ -4,9 +4,9 @@ class FinanceTool(models.Model):
     _name = 'finance.tool'
     _description = 'Finanz Reader Werkzeug'
 
-    name = fields.Char("Bezeichnung", default="Bilanz")
+    name = fields.Char("Bezeichnung", default="Mein Finanz-Check")
 
-    # Die Firmenwährung
+    # Die Firmenwährung (wird automatisch gesetzt)
     currency_id = fields.Many2one(
         'res.currency',
         string="Leitwährung",
@@ -14,7 +14,7 @@ class FinanceTool(models.Model):
         required=True
     )
 
-    # KPIs
+    # KPIs (Summen)
     kpi_liq_1 = fields.Float("Liquidität 1 (Cash)", readonly=True)
     kpi_liq_2 = fields.Float("Liquidität 2 (Quick)", readonly=True)
     kpi_liq_3 = fields.Float("Liquidität 3 (Current)", readonly=True)
@@ -23,16 +23,20 @@ class FinanceTool(models.Model):
     kpi_total_passiva = fields.Float("Summe Passiva", readonly=True)
     kpi_short_term_debt = fields.Float("Kurzfr. Fremdkapital", readonly=True)
 
-    # Zeilen
+    # Zeilen (One2many Verbindungen)
     aktiva_line_ids = fields.One2many('finance.tool.line', 'tool_aktiva_id', string="Aktiva Zeilen")
     passiva_line_ids = fields.One2many('finance.tool.line', 'tool_passiva_id', string="Passiva Zeilen")
 
     def action_calculate_balance(self):
+        """
+        Hauptfunktion: Löscht alte Zeilen, berechnet Salden neu,
+        rechnet Fremdwährungen um und speichert das Ergebnis.
+        """
         # 1. Alte Zeilen löschen
         self.aktiva_line_ids.unlink()
         self.passiva_line_ids.unlink()
 
-        # Definitionen
+        # Kontotypen-Definitionen
         type_liquidity = ['asset_cash']
         type_receivable = ['asset_receivable']
         type_current_assets = ['asset_current', 'asset_prepayments']
@@ -40,7 +44,7 @@ class FinanceTool(models.Model):
         type_short_term_liabilities = ['liability_payable', 'liability_credit_card', 'liability_current']
         type_long_term_equity = ['liability_non_current', 'equity', 'equity_unaffected']
 
-        # Variablen
+        # Variablen für Summen
         asset_val_liq_1 = 0.0
         asset_val_liq_2 = 0.0
         asset_val_liq_3 = 0.0
@@ -55,43 +59,42 @@ class FinanceTool(models.Model):
         main_curr = company.currency_id
         today = fields.Date.context_today(self)
 
-        # Konten suchen
+        # Alle Konten der Firma suchen
         all_accounts = self.env['account.account'].search([
             ('deprecated', '=', False),
             ('company_id', '=', company.id)
         ])
 
         for acc in all_accounts:
-            # A. WÄHRUNG BESTIMMEN
-            # Wenn Konto Währung hat -> nimm diese. Sonst -> Firmenwährung.
+            # A. Währung des Kontos bestimmen
             if acc.currency_id:
                 line_curr_id = acc.currency_id.id
                 acc_currency_obj = acc.currency_id
             else:
+                # Falls keine Währung auf dem Konto, ist es die Firmenwährung
                 line_curr_id = main_curr.id
                 acc_currency_obj = main_curr
 
-            # B. SALDEN ERMITTELN
+            # B. Saldo ermitteln (Fremdwährung vs. Leitwährung)
             domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
             original_val = 0.0
 
-            # Hat das Konto eine explizite Fremdwährung?
             if acc.currency_id and acc.currency_id != main_curr:
                 # Fremdwährung: amount_currency nutzen
                 data = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
                 if data and data[0]['amount_currency']:
                     original_val = data[0]['amount_currency']
             else:
-                # Leitwährung oder keine Währung am Konto: balance nutzen
+                # Leitwährung: balance nutzen
                 data = self.env['account.move.line'].read_group(domain, ['balance'], [])
                 if data and data[0]['balance']:
                     original_val = data[0]['balance']
 
-            # Null-Salden überspringen
+            # Konten ohne Saldo überspringen
             if abs(original_val) < 0.01:
                 continue
 
-            # C. UMRECHNUNG IN LEITWÄHRUNG
+            # C. Umrechnung in Leitwährung (Tageskurs)
             converted_val = acc_currency_obj._convert(
                 original_val,
                 main_curr,
@@ -101,31 +104,37 @@ class FinanceTool(models.Model):
 
             atype = acc.account_type
 
-            # Datensatz für die Zeile vorbereiten
+            # Datensatz vorbereiten
             line_vals = {
+                'account_id': acc.id,                   # WICHTIG für den Link
                 'code': acc.code,
                 'name': acc.name,
                 'original_amount': original_val,
-                'original_currency_id': line_curr_id,   # WICHTIG: Explizit setzen
-                'converted_amount': converted_val,
-                'currency_id': main_curr.id,            # WICHTIG: Explizit setzen (für converted col)
+                'original_currency_id': line_curr_id,   # Währung für Anzeige
+                'converted_amount': converted_val,      # Betrag in CHF/EUR
+                'currency_id': main_curr.id,            # Währungseinheit für converted
             }
 
-            # === AKTIVA ===
+            # === ZUORDNUNG AKTIVA ===
             if atype in type_liquidity + type_receivable + type_current_assets + type_fixed_assets:
                 sum_aktiva += converted_val
+
+                # Liquiditätsgrade berechnen
                 if atype in type_liquidity:
-                    asset_val_liq_1 += converted_val; asset_val_liq_2 += converted_val; asset_val_liq_3 += converted_val
+                    asset_val_liq_1 += converted_val
+                    asset_val_liq_2 += converted_val
+                    asset_val_liq_3 += converted_val
                 elif atype in type_receivable:
-                    asset_val_liq_2 += converted_val; asset_val_liq_3 += converted_val
+                    asset_val_liq_2 += converted_val
+                    asset_val_liq_3 += converted_val
                 elif atype in type_current_assets:
                     asset_val_liq_3 += converted_val
 
                 new_aktiva_lines.append(line_vals)
 
-            # === PASSIVA ===
+            # === ZUORDNUNG PASSIVA ===
             elif atype in type_short_term_liabilities + type_long_term_equity:
-                # Vorzeichen drehen
+                # Vorzeichen drehen für schönere Anzeige (Passiva sind in DB oft negativ)
                 line_vals['original_amount'] = original_val * -1
                 line_vals['converted_amount'] = converted_val * -1
 
@@ -157,6 +166,9 @@ class FinanceToolLine(models.Model):
     tool_aktiva_id = fields.Many2one('finance.tool', string="Parent Aktiva")
     tool_passiva_id = fields.Many2one('finance.tool', string="Parent Passiva")
 
+    # Verknüpfung zum echten Konto (für den Deep-Link)
+    account_id = fields.Many2one('account.account', string="Konto-Objekt", required=True)
+
     code = fields.Char("Nr.")
     name = fields.Char("Konto")
 
@@ -167,3 +179,18 @@ class FinanceToolLine(models.Model):
     # 2. Leitwährung (Firma)
     currency_id = fields.Many2one('res.currency', string="Leitwährung")
     converted_amount = fields.Monetary(string="In Leitwährung", currency_field='currency_id')
+
+    def action_view_journal_items(self):
+        """ Öffnet die Buchungszeilen für dieses spezifische Konto """
+        self.ensure_one()
+        return {
+            'name': f"Buchungen: {self.name}",
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.move.line',
+            'view_mode': 'tree,form',
+            'domain': [
+                ('account_id', '=', self.account_id.id),
+                ('parent_state', '=', 'posted')
+            ],
+            'context': {'create': False, 'search_default_posted': 1},
+        }
