@@ -1,11 +1,10 @@
 {
-    'name': 'Mein Finanz Cockpit',
+    'name': 'Simple Bilanz',
     'version': '1.0',
     'category': 'Accounting',
     'summary': 'Schneller Liquiditäts-Check',
     'description': """
-        Ein einfaches Tool zur Berechnung von Liquidität
-        basierend auf Odoo Buchungszeilen.
+        Ein einfaches Tool zur Ansicht einer einfachen Bilanz mit Liquidität.
     """,
     'author': 'Michael Hugi',
     'depends': ['base', 'account'],  # WICHTIG: Wir hängen vom Accounting Modul ab
