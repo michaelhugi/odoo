@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_finance_tool_form" model="ir.ui.view">
+        <field name="name">finance.tool.form</field>
+        <field name="model">finance.tool</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_calculate_balance"
+                            string="Neu Berechnen"
+                            type="object"
+                            class="btn-primary"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+
+                    <group string="Liquiditäts-Status (Netto nach Abzug KFK)">
+                        <group>
+                            <field name="kpi_liq_1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <field name="kpi_liq_2" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <field name="kpi_liq_3" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                        </group>
+                        <group>
+                            <field name="kpi_short_term_debt" widget="monetary" decoration-danger="1"/>
+                            <div class="text-muted">
+                                * Das kurzfristige Fremdkapital wurde hier bereits abgezogen.
+                            </div>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group string="Aktiva">
+                            <field name="aktiva_line_ids" nolabel="1">
+                                <tree limit="100">
+                                    <field name="code"/>
+                                    <field name="name"/>
+                                    <field name="amount" sum="Total Aktiva" widget="monetary"/>
+                                </tree>
+                            </field>
+                            <group>
+                                <field name="kpi_total_aktiva" widget="monetary" style="font-weight:bold; font-size:1.2em;"/>
+                            </group>
+                        </group>
+
+                        <group string="Passiva">
+                            <field name="passiva_line_ids" nolabel="1">
+                                <tree limit="100">
+                                    <field name="code"/>
+                                    <field name="name"/>
+                                    <field name="amount" sum="Total Passiva" widget="monetary"/>
+                                </tree>
+                            </field>
+                            <group>
+                                <field name="kpi_total_passiva" widget="monetary" style="font-weight:bold; font-size:1.2em;"/>
+                            </group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_finance_tool_tree" model="ir.ui.view">
+        <field name="name">finance.tool.tree</field>
+        <field name="model">finance.tool</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="create_date" string="Erstellt am"/>
+                <field name="kpi_liq_1"/>
+                <field name="kpi_total_aktiva"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="action_finance_tool" model="ir.actions.act_window">
+        <field name="name">Finanz Cockpit</field>
+        <field name="res_model">finance.tool</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Erstelle deinen ersten Finanz-Check!
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_finance_root" name="Finanz Tool" sequence="10"/>
+
+    <menuitem id="menu_finance_dashboard"
+              parent="menu_finance_root"
+              name="Dashboard"
+              action="action_finance_tool"
+              sequence="10"/>
+</odoo>
