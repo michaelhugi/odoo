@@ -9,6 +9,12 @@
                     <button name="action_calculate_balance" string="Neu Berechnen" type="object" class="btn-primary"/>
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <div class="oe_inline" style="padding: 10px; color: #666;">
+                            <span>Stand: </span>
+                            <field name="write_date" widget="datetime" readonly="1"/>
+                        </div>
+                    </div>
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <field name="currency_id" invisible="1"/>
 
