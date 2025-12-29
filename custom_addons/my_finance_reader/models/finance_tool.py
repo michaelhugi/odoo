@@ -1,13 +1,20 @@
 from odoo import models, fields, api
 
-# 1. DAS HAUPT-WERKZEUG
 class FinanceTool(models.Model):
     _name = 'finance.tool'
     _description = 'Finanz Reader Werkzeug'
 
-    name = fields.Char("Bezeichnung", default="Mein Finanz-Check")
+    name = fields.Char("Bezeichnung", default="Bilanz")
 
-    # KPIs (Summen)
+    # Die Firmenwährung
+    currency_id = fields.Many2one(
+        'res.currency',
+        string="Leitwährung",
+        default=lambda self: self.env.company.currency_id,
+        required=True
+    )
+
+    # KPIs
     kpi_liq_1 = fields.Float("Liquidität 1 (Cash)", readonly=True)
     kpi_liq_2 = fields.Float("Liquidität 2 (Quick)", readonly=True)
     kpi_liq_3 = fields.Float("Liquidität 3 (Current)", readonly=True)
@@ -16,24 +23,20 @@ class FinanceTool(models.Model):
     kpi_total_passiva = fields.Float("Summe Passiva", readonly=True)
     kpi_short_term_debt = fields.Float("Kurzfr. Fremdkapital", readonly=True)
 
-    # NEU: Verknüpfung zu den Zeilen (One2many)
-    # Wir brauchen zwei Listen, damit wir sie links und rechts trennen können
-    aktiva_line_ids = fields.One2many('finance.tool.line', 'tool_aktiva_id', string="Aktiva Zeilen", readonly=True)
-    passiva_line_ids = fields.One2many('finance.tool.line', 'tool_passiva_id', string="Passiva Zeilen", readonly=True)
+    # Zeilen
+    aktiva_line_ids = fields.One2many('finance.tool.line', 'tool_aktiva_id', string="Aktiva Zeilen")
+    passiva_line_ids = fields.One2many('finance.tool.line', 'tool_passiva_id', string="Passiva Zeilen")
 
     def action_calculate_balance(self):
-        # 1. Alte Zeilen löschen (damit wir nicht doppelt speichern bei erneutem Klick)
+        # 1. Alte Zeilen löschen
         self.aktiva_line_ids.unlink()
         self.passiva_line_ids.unlink()
-
-        account_model = self.env['account.account']
 
         # Definitionen
         type_liquidity = ['asset_cash']
         type_receivable = ['asset_receivable']
         type_current_assets = ['asset_current', 'asset_prepayments']
         type_fixed_assets = ['asset_fixed', 'asset_non_current']
-
         type_short_term_liabilities = ['liability_payable', 'liability_credit_card', 'liability_current']
         type_long_term_equity = ['liability_non_current', 'equity', 'equity_unaffected']
 
@@ -45,55 +48,93 @@ class FinanceTool(models.Model):
         sum_aktiva = 0.0
         sum_passiva = 0.0
 
-        # Wir sammeln die Zeilen jetzt in Listen, um sie am Ende zu speichern
         new_aktiva_lines = []
         new_passiva_lines = []
 
-        # Konten suchen (Nur aktuelle Firma)
-        all_accounts = account_model.search([
+        company = self.env.company
+        main_curr = company.currency_id
+        today = fields.Date.context_today(self)
+
+        # Konten suchen
+        all_accounts = self.env['account.account'].search([
             ('deprecated', '=', False),
-            ('company_id', '=', self.env.company.id)
+            ('company_id', '=', company.id)
         ])
 
         for acc in all_accounts:
-            saldo = acc.current_balance
-            if saldo == 0:
+            # A. WÄHRUNG BESTIMMEN
+            # Wenn Konto Währung hat -> nimm diese. Sonst -> Firmenwährung.
+            if acc.currency_id:
+                line_curr_id = acc.currency_id.id
+                acc_currency_obj = acc.currency_id
+            else:
+                line_curr_id = main_curr.id
+                acc_currency_obj = main_curr
+
+            # B. SALDEN ERMITTELN
+            domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
+            original_val = 0.0
+
+            # Hat das Konto eine explizite Fremdwährung?
+            if acc.currency_id and acc.currency_id != main_curr:
+                # Fremdwährung: amount_currency nutzen
+                data = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
+                if data and data[0]['amount_currency']:
+                    original_val = data[0]['amount_currency']
+            else:
+                # Leitwährung oder keine Währung am Konto: balance nutzen
+                data = self.env['account.move.line'].read_group(domain, ['balance'], [])
+                if data and data[0]['balance']:
+                    original_val = data[0]['balance']
+
+            # Null-Salden überspringen
+            if abs(original_val) < 0.01:
                 continue
+
+            # C. UMRECHNUNG IN LEITWÄHRUNG
+            converted_val = acc_currency_obj._convert(
+                original_val,
+                main_curr,
+                company,
+                today
+            )
 
             atype = acc.account_type
 
+            # Datensatz für die Zeile vorbereiten
+            line_vals = {
+                'code': acc.code,
+                'name': acc.name,
+                'original_amount': original_val,
+                'original_currency_id': line_curr_id,   # WICHTIG: Explizit setzen
+                'converted_amount': converted_val,
+                'currency_id': main_curr.id,            # WICHTIG: Explizit setzen (für converted col)
+            }
+
             # === AKTIVA ===
             if atype in type_liquidity + type_receivable + type_current_assets + type_fixed_assets:
-                # Summen rechnen
-                sum_aktiva += saldo
+                sum_aktiva += converted_val
                 if atype in type_liquidity:
-                    asset_val_liq_1 += saldo; asset_val_liq_2 += saldo; asset_val_liq_3 += saldo
+                    asset_val_liq_1 += converted_val; asset_val_liq_2 += converted_val; asset_val_liq_3 += converted_val
                 elif atype in type_receivable:
-                    asset_val_liq_2 += saldo; asset_val_liq_3 += saldo
+                    asset_val_liq_2 += converted_val; asset_val_liq_3 += converted_val
                 elif atype in type_current_assets:
-                    asset_val_liq_3 += saldo
+                    asset_val_liq_3 += converted_val
 
-                # Zeile vorbereiten
-                new_aktiva_lines.append({
-                    'code': acc.code,
-                    'name': acc.name,
-                    'amount': saldo,
-                })
+                new_aktiva_lines.append(line_vals)
 
             # === PASSIVA ===
             elif atype in type_short_term_liabilities + type_long_term_equity:
-                val_positive = saldo * -1
-                sum_passiva += val_positive
+                # Vorzeichen drehen
+                line_vals['original_amount'] = original_val * -1
+                line_vals['converted_amount'] = converted_val * -1
+
+                sum_passiva += line_vals['converted_amount']
 
                 if atype in type_short_term_liabilities:
-                    sum_kurzfr_fk += val_positive
+                    sum_kurzfr_fk += line_vals['converted_amount']
 
-                # Zeile vorbereiten
-                new_passiva_lines.append({
-                    'code': acc.code,
-                    'name': acc.name,
-                    'amount': val_positive,
-                })
+                new_passiva_lines.append(line_vals)
 
         # --- SPEICHERN ---
         self.write({
@@ -103,22 +144,26 @@ class FinanceTool(models.Model):
             'kpi_total_aktiva': sum_aktiva,
             'kpi_total_passiva': sum_passiva,
             'kpi_short_term_debt': sum_kurzfr_fk,
-            # Hier schreiben wir die Listen in die Datenbank (Magic Tuple 0,0)
-            'aktiva_line_ids': [(0, 0, line) for line in new_aktiva_lines],
-            'passiva_line_ids': [(0, 0, line) for line in new_passiva_lines],
+            'aktiva_line_ids': [(0, 0, x) for x in new_aktiva_lines],
+            'passiva_line_ids': [(0, 0, x) for x in new_passiva_lines],
         })
 
-# 2. DAS NEUE MODELL FÜR DIE ZEILEN (Tabelle in DB)
+
 class FinanceToolLine(models.Model):
     _name = 'finance.tool.line'
     _description = 'Einzelne Kontozeile'
-    # Sortierung nach Kontonummer
     _order = 'code asc'
 
-    # Verknüpfungen zurück zum Haupt-Tool
-    tool_aktiva_id = fields.Many2one('finance.tool', string="Parent Tool Aktiva")
-    tool_passiva_id = fields.Many2one('finance.tool', string="Parent Tool Passiva")
+    tool_aktiva_id = fields.Many2one('finance.tool', string="Parent Aktiva")
+    tool_passiva_id = fields.Many2one('finance.tool', string="Parent Passiva")
 
     code = fields.Char("Nr.")
     name = fields.Char("Konto")
-    amount = fields.Float("Saldo")
+
+    # 1. Original Währung
+    original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
+    original_amount = fields.Monetary(string="Betrag (Original)", currency_field='original_currency_id')
+
+    # 2. Leitwährung (Firma)
+    currency_id = fields.Many2one('res.currency', string="Leitwährung")
+    converted_amount = fields.Monetary(string="In Leitwährung", currency_field='currency_id')
