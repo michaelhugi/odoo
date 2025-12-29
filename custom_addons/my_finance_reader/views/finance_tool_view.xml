@@ -42,7 +42,6 @@
                                     <field name="view_account_type" widget="badge" decoration-info="is_highlight"/>
 
                                     <field name="view_original_amount" widget="monetary" options="{'currency_field': 'original_currency_id'}" decoration-info="is_highlight"/>
-                                    <field name="view_currency_symbol" string="Währ." decoration-info="is_highlight"/>
 
                                     <field name="view_converted_amount" widget="monetary" options="{'currency_field': 'currency_id'}" string="In CHF" decoration-info="is_highlight"/>
                                 </tree>
@@ -70,7 +69,6 @@
                                     <field name="view_account_type" widget="badge" decoration-info="is_highlight"/>
 
                                     <field name="view_original_amount" widget="monetary" options="{'currency_field': 'original_currency_id'}" decoration-info="is_highlight"/>
-                                    <field name="view_currency_symbol" string="Währ." decoration-info="is_highlight"/>
 
                                     <field name="view_converted_amount" widget="monetary" options="{'currency_field': 'currency_id'}" string="In CHF" decoration-info="is_highlight"/>
                                 </tree>

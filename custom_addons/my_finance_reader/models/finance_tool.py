@@ -4,7 +4,7 @@ class FinanceTool(models.Model):
     _name = 'finance.tool'
     _description = 'Finanz Reader Werkzeug'
 
-    name = fields.Char("Bezeichnung", default="Mein Finanz-Check")
+    name = fields.Char("Bezeichnung", default="Bilanz")
 
     currency_id = fields.Many2one(
         'res.currency',
@@ -29,19 +29,19 @@ class FinanceTool(models.Model):
 
         # Konfiguration
         PRIORITY_MAP = {
-            'asset_cash': (10, "FLÜSSIGE MITTEL"),
-            'asset_receivable': (20, "FORDERUNGEN"),
-            'asset_current': (30, "UMLAUFVERMÖGEN"),
-            'asset_prepayments': (35, "RECHNUNGSABGRENZUNG"),
-            'asset_fixed': (40, "ANLAGEVERMÖGEN"),
-            'asset_non_current': (45, "LANGFRISTIGES VERMÖGEN"),
+            'asset_cash': (10, "Flüssige Mittel (asset_cash)"),
+            'asset_receivable': (20, "Forderungen (assets_receivable)"),
+            'asset_current': (30, "Umlaufvermögen (asset_current)"),
+            'asset_prepayments': (35, "Rechnungsabgrenzung (asset_prepayments)"),
+            'asset_fixed': (40, "Anlagevermögen (asset_fixed)"),
+            'asset_non_current': (45, "Langfristiges Vermögen (asset_non_current)"),
 
-            'liability_payable': (10, "VERBINDLICHKEITEN"),
-            'liability_credit_card': (15, "KREDITKARTEN"),
-            'liability_current': (20, "KURZFR. VERBINDLICHKEITEN"),
-            'liability_non_current': (50, "LANGFR. VERBINDLICHKEITEN"),
-            'equity': (60, "EIGENKAPITAL"),
-            'equity_unaffected': (70, "JAHRESERGEBNIS"),
+            'liability_payable': (10, "Verbindlichkeiten (liability_payable)"),
+            'liability_credit_card': (15, "Kreditkarten (liability_credit_card)"),
+            'liability_current': (20, "Kurzfr. Verbindlichkeiten (liability_current)"),
+            'liability_non_current': (50, "Langfr. Verbindlichkeiten (liability_non_current)"),
+            'equity': (60, "Eigenkapital (equity)"),
+            # 'equity_unaffected': (70, "JAHRESERGEBNIS"),  <-- RAUSGEWORFEN
         }
 
         type_liquidity = ['asset_cash']
@@ -49,7 +49,9 @@ class FinanceTool(models.Model):
         type_current_assets = ['asset_current', 'asset_prepayments']
         type_fixed_assets = ['asset_fixed', 'asset_non_current']
         type_short_term_liabilities = ['liability_payable', 'liability_credit_card', 'liability_current']
-        type_long_term_equity = ['liability_non_current', 'equity', 'equity_unaffected']
+
+        # HIER DIE ÄNDERUNG: equity_unaffected entfernt
+        type_long_term_equity = ['liability_non_current', 'equity']
 
         asset_val_liq_1 = 0.0; asset_val_liq_2 = 0.0; asset_val_liq_3 = 0.0
         sum_kurzfr_fk = 0.0; sum_aktiva = 0.0; sum_passiva = 0.0
@@ -68,50 +70,40 @@ class FinanceTool(models.Model):
         processed_accounts = []
 
         for acc in all_accounts:
+            # Wenn Konto-Typ nicht in unseren Listen ist (z.B. equity_unaffected), überspringen wir es sofort
+            if acc.account_type not in type_liquidity + type_receivable + type_current_assets + type_fixed_assets + type_short_term_liabilities + type_long_term_equity:
+                continue
+
             domain = [('account_id', '=', acc.id), ('parent_state', '=', 'posted')]
             original_val = 0.0
 
-            # --- FIX: ROBUSTES LADEN DER WERTE ---
-
-            # 1. Leitwährungssaldo holen (als Fallback)
+            # --- Werte holen ---
             data_bal = self.env['account.move.line'].read_group(domain, ['balance'], [])
-            # WICHTIG: "or 0.0" verwandelt None in 0.0
             balance_in_main = (data_bal and data_bal[0].get('balance')) or 0.0
 
-            # 2. Fremdwährungssaldo holen
             amount_curr = 0.0
             if acc.currency_id and acc.currency_id != main_curr:
                 data_curr = self.env['account.move.line'].read_group(domain, ['amount_currency'], [])
                 amount_curr = (data_curr and data_curr[0].get('amount_currency')) or 0.0
 
-            # --- INTELLIGENTE LOGIK ---
-
+            # --- Fallback Logik ---
             if acc.currency_id and acc.currency_id != main_curr:
-                # Check: Haben wir einen Fremdwährungssaldo?
                 if abs(amount_curr) > 0.001:
-                    # Ja, alles sauber -> wir nehmen den echten Währungsbetrag
                     original_val = amount_curr
                     converted_val = acc.currency_id._convert(original_val, main_curr, company, today)
                 else:
-                    # Nein, aber vielleicht einen Saldo in Leitwährung?
                     if abs(balance_in_main) > 0.001:
-                        # FALLBACK: Wir nehmen den Leitwährungs-Saldo
                         converted_val = balance_in_main
-                        # Schätzung des Originalbetrags
                         original_val = main_curr._convert(balance_in_main, acc.currency_id, company, today)
                     else:
                         original_val = 0.0
                         converted_val = 0.0
             else:
-                # Konto ist in Leitwährung
                 original_val = balance_in_main
                 converted_val = balance_in_main
 
-            # SICHERHEITSNETZ: Falls _convert aus irgendeinem Grund None zurückgibt
-            if not converted_val:
-                converted_val = 0.0
-            if not original_val:
-                original_val = 0.0
+            if not converted_val: converted_val = 0.0
+            if not original_val: original_val = 0.0
 
             # Passiva drehen
             if acc.account_type in type_short_term_liabilities + type_long_term_equity:
@@ -121,8 +113,6 @@ class FinanceTool(models.Model):
 
             atype = acc.account_type
             if atype not in group_totals: group_totals[atype] = 0.0
-
-            # Hier ist der Fehler passiert: += mit None. Jetzt sichergestellt, dass val_for_sum Float ist.
             group_totals[atype] += val_for_sum
 
             processed_accounts.append({
@@ -166,7 +156,7 @@ class FinanceTool(models.Model):
                     total_grp = group_totals.get(atype, 0.0)
                     formatted_total = "{:,.2f}".format(total_grp).replace(",", "X").replace(".", ",").replace("X", ".")
 
-                    header_title = f"{group_label}  >>>  {formatted_total} {main_curr.symbol}"
+                    header_title = f"{group_label}  \u2003|\u2003  {formatted_total} {main_curr.symbol}"
 
                     new_aktiva_lines.append({
                         'display_type': 'line_section',
@@ -264,13 +254,12 @@ class FinanceToolLine(models.Model):
 
     is_highlight = fields.Boolean(default=False)
 
-    # Anzeige-Felder (nicht gespeichert -> keine Sortierung)
+    # Anzeige-Felder
     name = fields.Char("Konto / Gruppe", compute='_compute_view_vals', store=False)
     view_code = fields.Char("Nr.", compute='_compute_view_vals', store=False)
     view_account_type = fields.Char("Typ", compute='_compute_view_vals', store=False)
     view_converted_amount = fields.Monetary("In Leitwährung", compute='_compute_view_vals', store=False, currency_field='currency_id')
     view_original_amount = fields.Monetary("Betrag", compute='_compute_view_vals', store=False, currency_field='original_currency_id')
-    view_currency_symbol = fields.Char("Währ.", compute='_compute_view_vals', store=False)
 
     @api.depends('code', 'db_name', 'converted_amount', 'account_id', 'original_amount', 'display_type')
     def _compute_view_vals(self):
@@ -282,16 +271,10 @@ class FinanceToolLine(models.Model):
                 rec.view_account_type = ""
                 rec.view_converted_amount = 0
                 rec.view_original_amount = 0
-                rec.view_currency_symbol = ""
             else:
                 rec.view_code = rec.code
                 rec.view_converted_amount = rec.converted_amount
                 rec.view_original_amount = rec.original_amount
-
-                if rec.original_currency_id:
-                    rec.view_currency_symbol = rec.original_currency_id.symbol
-                else:
-                    rec.view_currency_symbol = ""
 
                 if rec.account_id and rec.account_id.account_type:
                     rec.view_account_type = rec.account_id.account_type
