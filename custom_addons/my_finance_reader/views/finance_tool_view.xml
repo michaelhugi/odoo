@@ -34,7 +34,7 @@
 
                                     <button name="action_view_journal_items" type="object" icon="fa-list" title="Buchungen" attrs="{'invisible': [('display_type', '!=', False)]}"/>
 
-                                    <field name="view_code"/>
+                                    <field name="view_code" width="50px"/>
 
                                     <field name="name"/>
 
@@ -60,7 +60,8 @@
 
                                     <button name="action_view_journal_items" type="object" icon="fa-list" title="Buchungen" attrs="{'invisible': [('display_type', '!=', False)]}"/>
 
-                                    <field name="view_code"/>
+                                    <field name="view_code" width="50px"/>
+
                                     <field name="name"/>
 
                                     <field name="view_original_amount" widget="monetary" options="{'currency_field': 'original_currency_id'}" decoration-info="is_highlight"/>
