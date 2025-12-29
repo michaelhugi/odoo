@@ -4,7 +4,7 @@ class FinanceTool(models.Model):
     _name = 'finance.tool'
     _description = 'Finanz Reader Werkzeug'
 
-    name = fields.Char("Bezeichnung", default="Bilanz")
+    name = fields.Char("Bezeichnung", default="Mein Finanz-Check")
 
     # Die Firmenwährung (wird automatisch gesetzt)
     currency_id = fields.Many2one(
@@ -89,9 +89,9 @@ class FinanceTool(models.Model):
                 if data and data[0]['balance']:
                     original_val = data[0]['balance']
 
-            # Konten ohne Saldo überspringen
-            if abs(original_val) < 0.01:
-                continue
+            # --- ÄNDERUNG: Wir überspringen 0-Salden NICHT mehr ---
+            # if abs(original_val) < 0.01:
+            #    continue
 
             # C. Umrechnung in Leitwährung
             converted_val = acc_currency_obj._convert(
@@ -169,12 +169,12 @@ class FinanceToolLine(models.Model):
     code = fields.Char("Nr.")
     name = fields.Char("Konto")
 
-    # NEU: Der Kontotyp wird direkt vom verknüpften Konto geholt
+    # Der Kontotyp wird direkt vom verknüpften Konto geholt
     account_type = fields.Selection(related='account_id.account_type', string="Typ", store=True)
 
     # Währungsfelder
     original_currency_id = fields.Many2one('res.currency', string="Währung Orig.")
-    original_amount = fields.Monetary(string="Betrag", currency_field='original_currency_id')
+    original_amount = fields.Monetary(string="Betrag (Original)", currency_field='original_currency_id')
 
     currency_id = fields.Many2one('res.currency', string="Leitwährung")
     converted_amount = fields.Monetary(string="In Leitwährung", currency_field='currency_id')
